@@ -32,7 +32,7 @@ TfLiteTensor* input = nullptr;
 TfLiteTensor* output = nullptr;
 int inference_count = 0;
 
-constexpr int kTensorArenaSize = 2000;
+constexpr int kTensorArenaSize = 6000;
 uint8_t tensor_arena[kTensorArenaSize];
 }  // namespace
 
@@ -48,10 +48,14 @@ void setup() {
   }
 
   // Pull in only the operation implementations we need.
-  static tflite::MicroMutableOpResolver<1> resolver;
-  if (resolver.AddFullyConnected() != kTfLiteOk) {
-    return;
-  }
+  static tflite::MicroMutableOpResolver<8> resolver;
+  resolver.AddPad();
+  resolver.AddTranspose();
+  resolver.AddExpandDims();
+  resolver.AddConv2D();
+  resolver.AddReshape();
+  resolver.AddMean();
+  resolver.AddFullyConnected();
 
   // Build an interpreter to run the model with.
   static tflite::MicroInterpreter static_interpreter(
@@ -75,35 +79,21 @@ void setup() {
 
 // The name of this function is important for Arduino compatibility.
 void loop() {
-  // Calculate an x value to feed into the model. We compare the current
-  // inference_count to the number of inferences per cycle to determine
-  // our position within the range of possible x values the model was
-  // trained on, and use this to calculate a value.
-  float position = static_cast<float>(inference_count) /
-                   static_cast<float>(kInferencesPerCycle);
-  float x = position * kXrange;
 
-  // Quantize the input from floating-point to integer
-  int8_t x_quantized = x / input->params.scale + input->params.zero_point;
-  // Place the quantized input in the model's input tensor
-  input->data.int8[0] = x_quantized;
-
+  float* input = interpreter->typed_input_tensor<float>(0);
+  for(int i =0; i < 150; i++)
+    input[i] = vector_overwrite_fenwick[i];
   // Run inference, and report any error
   TfLiteStatus invoke_status = interpreter->Invoke();
+
+  float* output = interpreter->typed_output_tensor<float>(0);
+
+
   if (invoke_status != kTfLiteOk) {
-    MicroPrintf("Invoke failed on x: %f\n",
-                         static_cast<double>(x));
+    MicroPrintf("Invoke failed");
     return;
   }
-
-  // Obtain the quantized output from model's output tensor
-  int8_t y_quantized = output->data.int8[0];
-  // Dequantize the output from integer to floating-point
-  float y = (y_quantized - output->params.zero_point) * output->params.scale;
-
-  // Output the results. A custom HandleOutput function can be implemented
-  // for each supported hardware target.
-  HandleOutput(x, y);
+  MicroPrintf("class1: %f, class2: %f, class3: %f,", output[0], output[1], output[2]);
 
   // Increment the inference_counter, and reset it if we have reached
   // the total number per cycle
